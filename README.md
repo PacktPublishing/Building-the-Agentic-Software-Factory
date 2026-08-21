@@ -54,27 +54,27 @@ Chapters 8 through 11 address the organizational and strategic implications:
 AI-Productivity-For-Developers/
 ├── README.md                              ← You are here
 │
-├── ch01-beyond-vibe-coding/
+├── Chapter01/
 │   └── README.md
-├── ch02-the-anatomy-of-an-agent/
+├── Chapter02/
 │   └── README.md
-├── ch03-context-engineering/
+├── Chapter03/
 │   └── README.md
-├── ch04-specification-engineering/
+├── Chapter04/
 │   └── README.md
-├── ch05-verification-engineering/
+├── Chapter05/
 │   └── README.md
-├── ch06-the-complete-harness/
+├── Chapter06/
 │   └── README.md
-├── ch07-the-autonomy-spectrum/
+├── Chapter07/
 │   └── README.md
-├── ch08-security-and-safety/
+├── Chapter08/
 │   └── README.md
-├── ch09-the-team-operating-model/
+├── Chapter09/
 │   └── README.md
-├── ch10-the-developers-new-identity/
+├── Chapter10/
 │   └── README.md
-└── ch11-the-software-factory/
+└── Chapter11/
     └── README.md
 ```
 
