@@ -51,7 +51,7 @@ Chapters 8 through 11 address the organizational and strategic implications:
 ## Repository Structure
 
 ```
-AI-Productivity-For-Developers/
+Building-the-Software-Factory/
 ├── README.md                              ← You are here
 │
 ├── Chapter01/
