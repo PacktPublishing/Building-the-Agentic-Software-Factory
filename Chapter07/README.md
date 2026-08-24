@@ -2,22 +2,22 @@
 
 ## Chapter Summary
 
-Autonomy is not a binary switch. This chapter introduces the **Agentic Engineering Maturity Model (AEMM)** - a five-level framework for calibrating exactly how much freedom you grant an agent based on the risk of the task, the quality of the context, and the strength of the harness. Granting too little autonomy wastes the agent's potential; granting too much creates a liability.
+Autonomy is not a binary switch. This chapter introduces the **Agentic Engineering Maturity Model (AEMM)**, a five-level framework for calibrating exactly how much freedom you grant an agent based on the risk of the task, the quality of the context, and the strength of the harness. It maps the SAE levels of driving automation to software development, distinguishes **agency** (the capacity to act) from **autonomy** (what the actor does on its own), and introduces the **Elastic Loop** framework for per-task calibration.
 
-The walkthrough builds a Python `verify_autonomy.py` script that acts as a pre-flight check, assessing whether a given task and harness configuration are ready for a higher level of autonomy.
+The walkthrough builds a **coverage-gated enforcement script** using `pytest-cov` that physically prevents an agent from committing code that drops test coverage below 100%, demonstrating that technical enforcement beats policy.
 
 ### Key Concepts
 
-- **The Agentic Engineering Maturity Model (AEMM):** Five levels of agent autonomy:
-  - **Level 1 - Ad-hoc Adopter:** The agent is used for one-off questions and code snippets. No harness. No systematic workflow.
-  - **Level 2 - Integrated Assistant:** The agent is integrated into the IDE (e.g., Copilot autocomplete). Passive assistance. The developer drives every decision.
-  - **Level 3 - Loose Loop:** The developer provides high-level specifications and reviews agent-generated PRs. Significant autonomy, but the developer checks all outputs before merging.
-  - **Level 4 - Tight Loop:** The agent runs autonomously within a fully harnessed repository, self-correcting via test/compiler feedback. The developer reviews exceptions, not every line.
-  - **Level 5 - Code Multiplier:** The developer orchestrates multiple parallel Loose/Tight Loop agents simultaneously. Attention is the developer's scarcest resource.
-
-- **The Elastic Loop:** At higher AEMM levels, the agent's execution loop *expands* (takes on more task scope) and *contracts* (self-corrects when verification gates fail), all without human intervention.
-- **Autonomy Calibration:** The correct AEMM level for a given task is determined by three factors - *Risk* (what breaks if the agent is wrong?), *Context Quality* (how good is the information architecture?), and *Harness Strength* (how strong are the verification gates?).
-- **Tightening the Loop:** If the Change Failure Rate rises, you tighten the loop (reduce autonomy, require more human review). If velocity is too low and the harness is strong, you loosen the loop (increase autonomy).
+- **The SAE Analogy:** The Society of Automotive Engineers' six levels of driving automation (L0-L5) map cleanly to software development, from no automation to a fully autonomous pipeline. Each level describes what the machine does, not a ranking.
+- **The Agentic Engineering Maturity Model (AEMM):** Five levels of engineering maturity:
+  - **Level 1 - Ad-Hoc Adopter:** Isolated browser use, high friction, no harness.
+  - **Level 2 - Systematic Collaborator:** Agent integrated in the IDE. Human approves every line.
+  - **Level 3 - Agent Manager:** Developer provides specifications and reviews PRs. Significant autonomy, supervised loop.
+  - **Level 4 - Harness Engineer:** Agent runs autonomously within a fully harnessed repository, self-correcting via verification gates. Developer reviews exceptions, not every line.
+  - **Level 5 - Fleet Commander:** Developer orchestrates multiple parallel agents. Attention is the scarcest resource. The peak an individual engineer can reach.
+- **Agency vs. Autonomy:** Agency is the capacity to act (competence + authority + information). Autonomy is what the actor does on its own. The dangerous case: high autonomy with low agency. The golden rule: **autonomy must never exceed the structural capacity of the harness to verify it.**
+- **The Elastic Loop:** The agent's execution loop *expands* (takes on more task scope) and *contracts* (self-corrects when verification gates fail) based on risk and context quality. The developer dials this per task.
+- **Technical Enforcement Beats Policy:** A PDF policy document does not bind a machine. A `pytest-cov --cov-fail-under=100` gate physically rejects code that violates the standard. Technical enforcement carries the load.
 
 ---
 
@@ -27,134 +27,143 @@ The walkthrough builds a Python `verify_autonomy.py` script that acts as a pre-f
 
 | Level | Name | Agent Role | Human Role | Loop Type |
 |---|---|---|---|---|
-| 1 | Ad-hoc Adopter | Answering questions | Full author | No loop |
-| 2 | Integrated Assistant | Inline autocomplete | Approves every line | Micro-loop |
-| 3 | Loose Loop | Generates full features | Reviews PRs | Supervised loop |
-| 4 | Tight Loop | Implements + self-corrects | Reviews exceptions | Tight loop |
-| 5 | Code Multiplier | Orchestrates parallel agents | Monitors dashboard | Multi-agent loop |
+| 1 | Ad-Hoc Adopter | Answering questions | Full author | No loop |
+| 2 | Systematic Collaborator | Inline autocomplete | Approves every line | Micro-loop |
+| 3 | Agent Manager | Generates full features | Reviews PRs | Supervised loop |
+| 4 | Harness Engineer | Implements + self-corrects | Reviews exceptions | Tight loop |
+| 5 | Fleet Commander | Orchestrates parallel agents | Monitors dashboard | Multi-agent loop |
 
-### Autonomy Pre-Flight Check Script
-
-Save as `verify_autonomy.py`. Run this before elevating to a higher AEMM level on a task:
-
-```python
-#!/usr/bin/env python3
-"""
-verify_autonomy.py - Pre-flight check before granting a higher AEMM level.
-
-Assesses whether the current task and harness are ready for elevated autonomy.
-Exit code 0 = cleared for elevation. Exit code 1 = not ready.
-"""
-import subprocess
-import sys
-import os
-from pathlib import Path
-
-
-def check_architecture_doc() -> tuple[bool, str]:
-    """Verify that an architecture.md or equivalent context document exists."""
-    candidates = ["architecture.md", "AGENTS.md", ".cursorrules", "docs/architecture.md"]
-    for candidate in candidates:
-        if Path(candidate).exists():
-            return True, f"PASS: Context document found: {candidate}"
-    return False, "FAIL: No context document found (architecture.md, AGENTS.md, or .cursorrules)"
-
-
-def check_test_suite() -> tuple[bool, str]:
-    """Verify that a test suite exists and passes."""
-    result = subprocess.run(
-        ["pytest", "--tb=no", "-q"],
-        capture_output=True,
-        text=True
-    )
-    if result.returncode == 0:
-        return True, f"PASS: Test suite passes: {result.stdout.strip().splitlines()[-1]}"
-    return False, f"FAIL: Test suite failing:\n{result.stdout[-300:]}"
-
-
-def check_type_annotations() -> tuple[bool, str]:
-    """Verify mypy strict type checking passes."""
-    result = subprocess.run(
-        ["mypy", "src/", "--strict", "--ignore-missing-imports"],
-        capture_output=True,
-        text=True
-    )
-    if result.returncode == 0:
-        return True, "PASS: mypy --strict passes with zero errors"
-    error_count = result.stdout.count("error:")
-    return False, f"FAIL: mypy found {error_count} type error(s). Fix before elevating autonomy."
-
-
-def check_pre_commit_hooks() -> tuple[bool, str]:
-    """Verify that pre-commit hooks are configured."""
-    if Path(".pre-commit-config.yaml").exists():
-        hook_dir = Path(".git/hooks/pre-commit")
-        if hook_dir.exists():
-            return True, "PASS: pre-commit hooks installed and configured"
-        return False, "FAIL: .pre-commit-config.yaml exists but hooks not installed. Run: pre-commit install"
-    return False, "FAIL: No .pre-commit-config.yaml found. Verification gate not installed."
-
-
-def check_gitignore_secrets() -> tuple[bool, str]:
-    """Verify .env files are gitignored."""
-    gitignore = Path(".gitignore")
-    if not gitignore.exists():
-        return False, "FAIL: No .gitignore file found."
-    content = gitignore.read_text()
-    if ".env" in content:
-        return True, "PASS: .env files are gitignored"
-    return False, "FAIL: .env not found in .gitignore. Secrets may be exposed."
-
-
-def main() -> None:
-    checks = [
-        check_architecture_doc,
-        check_test_suite,
-        check_type_annotations,
-        check_pre_commit_hooks,
-        check_gitignore_secrets,
-    ]
-
-    print("=" * 60)
-    print("  AEMM Autonomy Pre-Flight Check")
-    print("=" * 60)
-
-    passed = 0
-    failed = 0
-    for check in checks:
-        ok, message = check()
-        print(f"\n{message}")
-        if ok:
-            passed += 1
-        else:
-            failed += 1
-
-    print("\n" + "=" * 60)
-    print(f"  Result: {passed} passed / {failed} failed")
-    print("=" * 60)
-
-    if failed == 0:
-        print("\nCLEARED: Harness is ready for elevated autonomy (AEMM Level 4+).")
-        sys.exit(0)
-    else:
-        print(f"\nNOT READY: Resolve {failed} issue(s) before elevating autonomy.")
-        print("   Granting high autonomy to an unharnessed agent increases blast radius.")
-        sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()
-```
-
-### Running the Pre-Flight Check
+### Step 1: Initialize the Rigid Environment
 
 ```bash
-# Make executable
-chmod +x verify_autonomy.py
+mkdir autonomy-boundary-demo
+cd autonomy-boundary-demo
+python -m venv .venv
+source .venv/bin/activate   # On Windows: .venv\Scripts\activate
+pip install pytest pytest-cov
+```
 
-# Run before a high-autonomy task
+### Step 2: Establish the Baseline Codebase
+
+Create `calculator.py`, a simple, fully-tested module:
+
+```python
+def add(a: int, b: int) -> int:
+    """Returns the sum of two integers."""
+    return a + b
+```
+
+Create `test_calculator.py`:
+
+```python
+from calculator import add
+
+def test_add():
+    assert add(2, 3) == 5
+    assert add(-1, 1) == 0
+```
+
+### Step 3: Implement the Technical Enforcement Script
+
+Create `verify_autonomy.py`, a coverage-gated enforcement boundary:
+
+```python
+import subprocess
+import sys
+
+def enforce_coverage_boundary():
+    print("Executing Autonomy Verification Gate...")
+
+    # Run pytest with the coverage flag, requiring 100% coverage
+    # The --cov-fail-under=100 flag is the physical boundary.
+    result = subprocess.run(
+        ["pytest", "--cov=calculator", "--cov-fail-under=100", "test_calculator.py"],
+        capture_output=True,
+        text=True
+    )
+
+    if result.returncode == 0:
+        print("[OK] Autonomy Gate Passed: 100% Coverage Maintained.")
+        print("Code is permitted to proceed.")
+        sys.exit(0)
+    else:
+        print("[FAIL] Autonomy Gate FAILED: Test coverage dropped below 100%.")
+        print("The agent's code has been rejected by the Project Harness.")
+        print("\nCoverage Report Details:")
+
+        # Print the last few lines of the pytest output showing the coverage failure
+        output_lines = result.stdout.split('\n')
+        for line in output_lines[-10:]:
+            print(line)
+
+        sys.exit(1)
+
+if __name__ == "__main__":
+    enforce_coverage_boundary()
+```
+
+Verify the baseline passes:
+
+```bash
 python verify_autonomy.py
 ```
+
+Expected: `[OK] Autonomy Gate Passed: 100% Coverage Maintained.`
+
+### Step 4: Test the Boundary Against a Rogue Agent
+
+Prompt the agent to add a feature **without tests**, simulating a developer rushing a feature out:
+
+```
+Add a new function to calculator.py that handles multiplication. Do NOT
+write any tests for it. Just add the function to the main file.
+```
+
+The agent will eagerly comply. `calculator.py` becomes:
+
+```python
+def add(a: int, b: int) -> int:
+    """Returns the sum of two integers."""
+    return a + b
+
+def multiply(a: int, b: int) -> int:
+    """Returns the product of two integers."""
+    return a * b
+```
+
+### Step 5: The Harness Rejects the Code
+
+Run the enforcement script:
+
+```bash
+python verify_autonomy.py
+```
+
+Expected output:
+
+```
+Executing Autonomy Verification Gate...
+[FAIL] Autonomy Gate FAILED: Test coverage dropped below 100%.
+The agent's code has been rejected by the Project Harness.
+
+Coverage Report Details:
+----------- coverage: platform linux, python 3.10.x-final-0 -----------
+Name            Stmts   Miss  Cover
+-----------------------------------
+calculator.py       4      1    75%
+-----------------------------------
+TOTAL               4      1    75%
+
+FAIL Required test coverage of 100% not reached. Total coverage: 75.00%
+```
+
+### Closing the Loop
+
+Copy the failure output, paste it back to the agent, and say: **"Fix this."**
+
+The agent reads the coverage failure, recognizes it needs tests for `multiply()`, writes the missing tests in `test_calculator.py`, and resubmits. Run the gate again and it passes.
+
+This is bounded autonomy in action. The rules of the repository rejected the code, not a human remembering to check.
 
 ### Autonomy Calibration Decision Matrix
 
@@ -174,13 +183,15 @@ Use this table to determine the appropriate AEMM level before starting a task:
 ## Supplemental Resources
 
 ### AEMM and Autonomy Frameworks
-- **[Building Effective Agents - Anthropic](https://www.anthropic.com/research/building-effective-agents)** - Anthropic's framework for categorizing agents by their level of autonomy (workflows vs. agents). Directly maps to the AEMM concept.
-- **[Agent Levels of Autonomy - LangChain Blog](https://blog.langchain.dev/)** - LangChain's perspective on how to categorize and manage agent autonomy in production systems.
+- **[Building Effective Agents - Anthropic](https://www.anthropic.com/research/building-effective-agents)** - Anthropic's framework for categorizing agents by their level of autonomy (workflows vs. agents).
+- **[The Five Levels: from Spicy Autocomplete to the Dark Factory - Dan Shapiro](https://danshapiro.com/)** - A driving-automation-modeled L0-L5 maturity ladder that runs parallel to the AEMM.
+- **[The Self-Driving Codebase - Ona (background-agents.com)](https://background-agents.com/)** - On in-loop vs. on-loop operation, fleets and swarms, and the false summit.
 
 ### DORA Metrics (For Autonomy Calibration)
-- **[DORA Metrics - Google Cloud](https://cloud.google.com/blog/products/devops-sre/using-the-four-keys-to-measure-your-devops-performance)** - The four DORA metrics used throughout the book to calibrate autonomy: Deployment Frequency, Lead Time, Change Failure Rate, MTTR. A rising Change Failure Rate is the signal to tighten the loop.
+- **[DORA Metrics - dora.dev](https://dora.dev/)** - The research program run by Google Cloud, for the definitions of the delivery metrics and the evidence behind them.
 - **[Accelerate - Nicole Forsgren et al.](https://itrevolution.com/product/accelerate/)** - The book that introduced DORA metrics as the gold standard for engineering productivity measurement.
 
-### Safety and Guardrails
-- **[AI Safety - Anthropic Constitutional AI](https://www.anthropic.com/research/constitutional-ai-harmlessness-from-ai-feedback)** - How model-level safety constraints interact with your harness-level safety constraints. Understanding the model's built-in guardrails helps you calibrate what the harness needs to add.
-- **[Responsible AI Practices - Google](https://ai.google/responsibility/responsible-ai-practices/)** - Google's framework for evaluating AI risk before deployment, applicable to agentic workflow risk assessment.
+### Technical Enforcement
+- **[pre-commit Framework](https://pre-commit.com/)** - Managing and running pre-commit hooks to enforce verification locally before code is pushed.
+- **[GitHub Actions - Environments and Required Reviewers](https://docs.github.com/en/actions)** - The concrete mechanism behind asynchronous approval gates: a deployment that stops and waits for a named human before it proceeds.
+- **[pytest-cov Documentation](https://pytest-cov.readthedocs.io/)** - The coverage plugin used in this chapter's enforcement script.

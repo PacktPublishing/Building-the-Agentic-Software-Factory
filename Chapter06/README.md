@@ -2,222 +2,162 @@
 
 ## Chapter Summary
 
-The Complete Project Harness is the synthesis of all three engineering disciplines: Context Engineering, Specification Engineering, and Verification Engineering. This chapter shows how to wire them together into a self-reinforcing system - a governed, opinionated repository that actively constrains the agent's behavior at every level, from the moment it reads the first file to the moment it attempts to commit code.
+The Complete Project Harness wires together the three manual disciplines, context (Chapter 3), intent (Chapter 4), and feedback (Chapter 5), into a single, self-reinforcing system that runs the steps for you. This chapter clarifies the distinction between the **Client Harness** (the tool you install) and the **Project Harness** (the rules, constraints, and tests you build), introduces the cognitive shift from working **in the loop** to **on the loop**, and identifies the **six components** that make a harness physical.
 
-The walkthrough builds a `ProductInventory` module using the full harness stack: an `architecture.md` context document, a Pydantic specification, and a `pytest` verification suite wired to a pre-commit gate.
+The walkthrough builds a **Book Inventory** CLI using the full harness stack: an `architecture.md` context map, a `test_inventory.py` verification suite, an agent rules file, and `mypy` strict typing, all wired together so the agent drives execution while you supervise.
 
 ### Key Concepts
 
-- **The Client Harness:** Agent tooling you install in your IDE or terminal (Cursor, Claude Code, Windsurf). This is the execution environment. You configure it but cannot modify its underlying architecture.
-- **The Project Harness:** Everything you build inside your repository to constrain the agent - `architecture.md`, ADRs, `.cursorrules`, `AGENTS.md`, type systems, linters, pre-commit hooks, and CI gates. This is the harness you own.
-- **`architecture.md`:** A persistent, authoritative document at the repository root that describes the bounded contexts, technology choices, naming conventions, and absolute architectural constraints. The agent reads this file first in any session.
-- **Harness Layers:** The harness operates at three levels - the *Information Layer* (ADRs, `architecture.md`), the *Specification Layer* (type annotations, schemas), and the *Verification Layer* (test suites, linters, pre-commit hooks, CI gates).
-- **Working on the Loop vs. in the Loop:** The harness transitions the developer from being *in* the agent's execution loop (manually catching every error) to being *on* the loop (the harness catches errors automatically, and the developer handles exceptions).
+- **Client Harness vs. Project Harness:** The Client Harness is the agent tooling you install (Cursor, Claude Code, Windsurf). The Project Harness is everything you build inside your repository to constrain the agent. You buy the client; you build the project harness.
+- **In the Loop, On the Loop, Above the Loop:** In the Loop: you sequence every step by hand. On the Loop: the harness sequences them and you supervise the result. Above the Loop: you manage fleets of specialized agents.
+- **The Six Components (Know, Do, Verify):**
+  - **Know - Rules:** Standing instructions the agent reads on every task (the agent-config file: `.cursorrules`, `AGENTS.md`, or equivalent).
+  - **Know - Context Management:** Retrieval (architecture maps, API summaries) and memory (pruning stale context).
+  - **Do - Tools:** Capabilities that give the LLM hands (running tests, reading files, calling APIs). Extensible via MCP.
+  - **Do - Skills:** Reusable, named bundles of instructions the agent loads on demand. The process steps from earlier chapters packaged as repeatable procedures.
+  - **Verify - Hooks:** Deterministic actions that fire automatically (pre-commit, post-edit). The agent cannot skip them.
+  - **Verify - Verification Gates:** Linters, formatters, type checkers, and test suites that block code from landing until it passes.
+- **Garbage Collection:** The deliberate removal of dead code, stale documentation, and misleading context. LLMs treat every file as absolute truth. Unpruned context fills the window with noise.
+- **Harness Anti-Patterns:** Making the agent do a script's job (formatting), the overly restrictive harness (linter busywork), neglected context (stale architecture maps), and relying on review instead of building loops.
 
 ---
 
 ## Code Snippets
 
-### The `architecture.md` Context Document
+### Step 1: Initialize the Environment
 
-Place this at the repository root. The agent reads it at the start of every session:
+```bash
+mkdir python-harness-demo
+cd python-harness-demo
+python -m venv .venv
+source .venv/bin/activate   # On Windows: .venv\Scripts\activate
+pip install pytest mypy
+```
+
+### Step 2: The Context Map (`architecture.md`)
+
+Create a file named `architecture.md` at the project root:
 
 ```markdown
-# Architecture Reference - ProductInventory Service
+# Application Architecture
 
-## Bounded Context
-This service manages product inventory records only. It does NOT handle orders, payments, or shipping.
-Cross-context data must flow through the defined API contracts, never through direct imports.
+## Purpose
+This application is a simple command-line utility for managing an
+inventory of books.
 
-## Technology Stack
-- Language: Python 3.10+
-- Validation: Pydantic v2 (MUST use, not dataclasses or TypedDict)
-- Testing: pytest with pytest-cov (minimum 90% coverage required)
-- Type Checking: mypy --strict (MUST pass with zero errors)
+## Data Models
+- A `Book` must have a `title` (string), an `author` (string), and a
+`price` (float).
+- The `price` must never be negative.
 
-## Absolute Constraints
-- ALL public functions MUST have complete type annotations.
-- ALL data models MUST be Pydantic BaseModel subclasses.
-- NEVER use `dict` as a parameter or return type for domain objects. Use typed Pydantic models.
-- NEVER import from the `orders/`, `payments/`, or `shipping/` modules.
-
-## Naming Conventions
-- Models: PascalCase (e.g., `ProductItem`, `InventoryRecord`)
-- Functions: snake_case (e.g., `add_product`, `decrement_stock`)
-- Constants: UPPER_SNAKE_CASE (e.g., `MAX_STOCK_LEVEL`)
-- Files: snake_case (e.g., `product_repository.py`)
-
-## File Structure
-src/
-  inventory/
-    models.py        - Pydantic models only
-    repository.py    - Data access logic only
-    service.py       - Business logic only
-tests/
-  inventory/
-    test_models.py
-    test_repository.py
-    test_service.py
+## Core Modules
+- `models.py`: Contains the data structures (DataClasses or Pydantic
+models).
+- `inventory.py`: Contains the logic for adding books and calculating
+total inventory value.
 ```
 
-### Pydantic Models (The Specification Layer)
+### Step 3: The Verification Layer (`test_inventory.py`)
 
-Save as `src/inventory/models.py`:
-
-```python
-from __future__ import annotations
-from typing import Optional
-from pydantic import BaseModel, Field, field_validator
-import uuid
-
-class ProductItem(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    sku: str = Field(min_length=3, max_length=50)
-    name: str = Field(min_length=1, max_length=200)
-    quantity: int = Field(ge=0)
-    unit_price: float = Field(gt=0)
-
-    @field_validator('sku')
-    @classmethod
-    def sku_must_be_uppercase(cls, v: str) -> str:
-        if v != v.upper():
-            raise ValueError('SKU must be uppercase')
-        return v
-
-class CreateProductRequest(BaseModel):
-    sku: str = Field(min_length=3, max_length=50)
-    name: str = Field(min_length=1, max_length=200)
-    quantity: int = Field(ge=0)
-    unit_price: float = Field(gt=0)
-
-class StockAdjustment(BaseModel):
-    product_id: str
-    delta: int  # Positive to add stock, negative to remove
-
-class InventoryStats(BaseModel):
-    total_products: int
-    total_units: int
-    total_value: float
-```
-
-### The Verification Suite (Write Before Implementation)
-
-Save as `tests/inventory/test_service.py`:
+Save as `test_inventory.py`. This is the gate the agent must pass:
 
 ```python
 import pytest
-from src.inventory.models import CreateProductRequest, StockAdjustment
-from src.inventory.service import InventoryService
+from models import Book
+from inventory import InventoryManager
 
-@pytest.fixture
-def service() -> InventoryService:
-    return InventoryService()
+def test_book_creation():
+    book = Book(title="Agentic Engineering", author="Alex Merced", price=29.99)
+    assert book.title == "Agentic Engineering"
 
-@pytest.fixture
-def sample_request() -> CreateProductRequest:
-    return CreateProductRequest(
-        sku="WIDGET-001",
-        name="Standard Widget",
-        quantity=100,
-        unit_price=9.99
-    )
+def test_negative_price_raises_error():
+    with pytest.raises(ValueError):
+        Book(title="Bad Book", author="Nobody", price=-5.00)
 
-def test_add_product_returns_product_with_id(service, sample_request):
-    product = service.add_product(sample_request)
-    assert product.id is not None
-    assert product.sku == "WIDGET-001"
+def test_inventory_total_value():
+    manager = InventoryManager()
+    manager.add_book(Book(title="Book 1", author="Author A", price=10.0))
+    manager.add_book(Book(title="Book 2", author="Author B", price=20.5))
 
-def test_add_product_rejects_duplicate_sku(service, sample_request):
-    service.add_product(sample_request)
-    with pytest.raises(ValueError, match="SKU"):
-        service.add_product(sample_request)
-
-def test_adjust_stock_increases_quantity(service, sample_request):
-    product = service.add_product(sample_request)
-    service.adjust_stock(StockAdjustment(product_id=product.id, delta=50))
-    updated = service.get_product(product.id)
-    assert updated is not None
-    assert updated.quantity == 150
-
-def test_adjust_stock_cannot_go_below_zero(service, sample_request):
-    product = service.add_product(sample_request)
-    with pytest.raises(ValueError, match="insufficient stock"):
-        service.adjust_stock(StockAdjustment(product_id=product.id, delta=-200))
-
-def test_get_stats_returns_correct_totals(service):
-    service.add_product(CreateProductRequest(
-        sku="A001", name="Product A", quantity=10, unit_price=5.00))
-    service.add_product(CreateProductRequest(
-        sku="B002", name="Product B", quantity=20, unit_price=10.00))
-    stats = service.get_stats()
-    assert stats.total_products == 2
-    assert stats.total_units == 30
-    assert stats.total_value == pytest.approx(250.00)
+    assert manager.calculate_total_value() == 30.5
 ```
 
-### The Pre-Commit Verification Gate
+### Step 4: The Rules File
 
-Create `.pre-commit-config.yaml`:
+Create your tool's rules file in the project root. The exact name depends on your agent (`.cursorrules`, `AGENTS.md`, `CLAUDE.md`, etc.). If unsure, save as `instructions.md` and include it in your prompt context:
 
-```yaml
-repos:
-  - repo: local
-    hooks:
-      - id: mypy-strict
-        name: mypy (strict type check)
-        entry: mypy src/ --strict
-        language: system
-        pass_filenames: false
+```markdown
+# Project Rules
 
-      - id: pytest-full
-        name: pytest (full verification suite)
-        entry: pytest tests/ --tb=short -q
-        language: system
-        pass_filenames: false
+You are operating within the python-harness-demo project. You must
+strictly adhere to the following workflow on every task:
+
+1. **Context First**: Before writing any code, you must read
+`architecture.md` to understand the domain models.
+2. **Strict Typing**: All Python code you generate must include strict
+type hints. You must use the `dataclasses` module for data structures.
+3. **Verification Loop**: Before you conclude any task or present code to
+the user, you must run the following two commands in the terminal:
+   - `mypy models.py inventory.py test_inventory.py`
+   - `pytest test_inventory.py`
+4. **Self-Correction**: If either `mypy` or `pytest` throws an error, you
+must read the terminal output, fix the code autonomously, and rerun the
+commands until both pass cleanly.
 ```
 
-Install the hooks:
+### Step 5: Execute On the Loop
+
+With the harness in place (context map, tests, rules, verification tools), issue a single high-level prompt:
+
+```
+We need to implement the book inventory system. Please read the
+architecture document, write the implementation in models.py and
+inventory.py, and ensure the test suite passes completely. Do not stop
+until mypy and pytest are perfectly green.
+```
+
+### What to Watch For
+
+The agent should follow a constrained, mechanical process:
+
+1. **Context Acquisition:** Reads the rules file, then reads `architecture.md`, then learns it must use DataClasses and that a `Book` requires `title`, `author`, and `price`.
+2. **Initial Implementation:** Generates `models.py` and `inventory.py` with strict type hints.
+3. **Automated Verification:** Runs `mypy models.py inventory.py test_inventory.py` and `pytest test_inventory.py`.
+4. **Self-Correction:** If pytest shows `Failed: test_negative_price_raises_error`, the agent reads the red output, modifies `models.py` to add a `__post_init__` validation check, and reruns the tests.
+5. **Final Output:** Tests turn green. The agent presents the verified implementation.
+
+You did not write the code. You did not manually fix type errors. You built the harness, and the harness produced the software. This is working **On the Loop**.
+
+### Running the Verification Gates Manually
 
 ```bash
-pip install pre-commit
-pre-commit install
-```
+# Run type checker
+mypy models.py inventory.py test_inventory.py
 
-### The Harness Prompt Template
+# Run all tests
+pytest test_inventory.py
 
-Feed this to the agent once all harness artifacts are in place:
-
-```
-Before writing any code, read the following in order:
-1. architecture.md - for architectural constraints and naming conventions
-2. src/inventory/models.py - for the Pydantic model contracts
-3. tests/inventory/test_service.py - for the behavioral verification criteria
-
-Implement src/inventory/service.py and src/inventory/repository.py so that:
-- All pytest tests pass
-- mypy --strict passes with zero errors
-- All models are Pydantic BaseModel subclasses as specified in architecture.md
-
-Do not stop until `pytest tests/ && mypy src/` both exit with code 0.
+# Run both together
+mypy models.py inventory.py test_inventory.py && pytest test_inventory.py
 ```
 
 ---
 
 ## Supplemental Resources
 
-### Pydantic
+### Pydantic & Data Modeling
 - **[Pydantic v2 Documentation](https://docs.pydantic.dev/latest/)** - Complete documentation for Pydantic v2, including field validators, model config, and serialization.
-- **[Pydantic v2 Migration Guide](https://docs.pydantic.dev/latest/migration/)** - Important if you are coming from Pydantic v1. The API changed significantly.
+- **[Python dataclasses (Official)](https://docs.python.org/3/library/dataclasses.html)** - The standard library module for data classes used in this chapter's walkthrough.
 
 ### Project Harness Tooling
-- **[pre-commit Documentation](https://pre-commit.com/)** - The framework used to wire the verification gate to the Git lifecycle.
+- **[pre-commit Documentation](https://pre-commit.com/)** - The framework for managing and running pre-commit hooks, wiring verification gates to the Git lifecycle.
 - **[Cursor Rules Documentation](https://docs.cursor.com/context/rules)** - How to configure `.cursorrules` files for persistent agent context.
-- **[Claude Code AGENTS.md](https://www.anthropic.com/claude-code)** - Claude Code reads `AGENTS.md` files at the repo root to establish persistent constraints.
+- **[Claude Code AGENTS.md](https://docs.anthropic.com/en/docs/claude-code/overview)** - Claude Code reads `AGENTS.md` files at the repo root to establish persistent constraints.
 
 ### Architecture Documentation
 - **[arc42 - Software Architecture Documentation](https://arc42.org/)** - A structured template for software architecture documentation. A good starting point for creating your `architecture.md`.
-- **[C4 Model](https://c4model.com/)** - A lightweight, hierarchical approach to visualizing software architecture. The diagrams from the C4 model work well alongside an `architecture.md`.
+- **[C4 Model](https://c4model.com/)** - A lightweight, hierarchical approach to visualizing software architecture.
 
 ### Code Quality
 - **[Ruff - Python Linter](https://docs.astral.sh/ruff/)** - A fast Python linter and formatter (replaces flake8, isort, black). Highly recommended as a harness layer alongside mypy.
-- **[ESLint](https://eslint.org/)** - The equivalent code quality tool for JavaScript/TypeScript projects.
+- **[mypy Documentation](https://mypy.readthedocs.io/)** - Official documentation for mypy, Python's standard static type checker.

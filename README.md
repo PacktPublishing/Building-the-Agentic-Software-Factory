@@ -26,13 +26,13 @@ The book is organized into three parts:
 Chapters 1 and 2 establish the conceptual foundation. You will learn why traditional "vibe coding" breaks down at enterprise scale and understand how autonomous agents actually work at a mechanical level (the ReAct loop, tool use, and the anatomy of an agent session).
 
 ### Part 2 - The Harness (Core Methodology)
-Chapters 3 through 7 introduce the four engineering disciplines that form the backbone of a professional agentic workflow:
+Chapters 3 through 7 introduce the three engineering disciplines that form the backbone of a professional agentic workflow, then wire them together and calibrate the result:
 
 | Chapter | Discipline |
 |---|---|
-| Ch. 3 - Context Engineering | Structuring your project's information architecture so the agent always has the right knowledge |
-| Ch. 4 - Specification Engineering | Replacing ambiguous English prompts with machine-readable schema contracts |
-| Ch. 5 - Verification Engineering | Using AI-TDD to prove that agent-generated code is correct |
+| Ch. 3 - Curating Context | Structuring your project's information architecture so the agent always has the right knowledge |
+| Ch. 4 - Shaping Intent | Replacing ambiguous English prompts with precise specifications using the Plan-Build-Verify cycle |
+| Ch. 5 - Closing Loops | Using AI-TDD and layered verification loops to prove that agent-generated code is correct |
 | Ch. 6 - The Complete Harness | Wiring all three disciplines into a self-reinforcing Project Harness |
 | Ch. 7 - The Autonomy Spectrum | Calibrating how much freedom you grant an agent based on risk and context quality |
 
